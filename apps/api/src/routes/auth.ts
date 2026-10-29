@@ -1,17 +1,9 @@
 import { loginBodySchema, registerBodySchema, zodIssuesToFields } from "contracts";
 import type { FastifyInstance } from "fastify";
-import { AuthService } from "../services/auth-service";
+import { cookieToken } from "../current-user";
 import { HttpError } from "../http-error";
+import { AuthService } from "../services/auth-service";
 import { sessionCookieOptions } from "../session-cookie";
-
-function cookieToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const parts = header.split(";").map((part) => part.trim());
-  const pair = parts.find((part) => part.startsWith("dyad_session="));
-  if (!pair) return null;
-  const value = pair.slice("dyad_session=".length);
-  return value ? decodeURIComponent(value) : null;
-}
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   const auth = new AuthService(app.db);

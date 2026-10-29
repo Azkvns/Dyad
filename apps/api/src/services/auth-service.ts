@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { and, eq, gt } from "drizzle-orm";
 import type { AppDatabase } from "../db/client";
 import { sessions, users } from "../db/schema";
+import { isUniqueViolation } from "../db/pg-error";
 import { HttpError } from "../http-error";
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -19,22 +20,6 @@ function newToken(): string {
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
-}
-
-function isUniqueViolation(error: unknown, constraint: string): boolean {
-  const queue: unknown[] = [error];
-  const seen = new Set<unknown>();
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || typeof current !== "object" || seen.has(current)) continue;
-    seen.add(current);
-    const row = current as { code?: string; constraint_name?: string; constraint?: string; cause?: unknown };
-    if (row.code === "23505" && (row.constraint_name === constraint || row.constraint === constraint)) {
-      return true;
-    }
-    if ("cause" in row) queue.push(row.cause);
-  }
-  return false;
 }
 
 export class AuthService {
