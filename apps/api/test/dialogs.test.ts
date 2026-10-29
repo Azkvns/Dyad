@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
-import { blocks, dialogCursors, dialogs } from "../src/db/schema";
+import { blocks, dialogCursors, dialogs, messages } from "../src/db/schema";
+import { hub } from "../src/services/hub";
 import { resetDatabase, testDatabaseUrl } from "./helpers";
 import { registerUser } from "./http";
 
@@ -183,6 +186,121 @@ describe("dialogs", () => {
         peer: { id: alice.id, username: "alice" },
       });
       expect(await app.db.select().from(dialogs)).toHaveLength(1);
+    });
+  });
+
+  describe("list", () => {
+    it("orders dialogs, previews, unread counts, and online flags", async () => {
+      const alice = await registerUser(app, "alice");
+      const bob = await registerUser(app, "bob");
+      const cara = await registerUser(app, "cara");
+      const dave = await registerUser(app, "dave");
+      const withCara = await app.inject({
+        method: "POST",
+        url: "/api/dialogs",
+        headers: { cookie: alice.cookie },
+        payload: { username: "cara" },
+      });
+      const withBob = await app.inject({
+        method: "POST",
+        url: "/api/dialogs",
+        headers: { cookie: alice.cookie },
+        payload: { username: "bob" },
+      });
+      const caraDialogId = withCara.json().id as string;
+      const bobDialogId = withBob.json().id as string;
+
+      await app.db.insert(messages).values({
+        dialogId: bobDialogId,
+        senderId: bob.id,
+        seq: 1,
+        body: "from bob",
+        clientMsgId: randomUUID(),
+        createdAt: new Date("2026-10-29T18:00:00.000Z"),
+      });
+      await app.db.update(dialogs).set({ lastSeq: 1 }).where(eq(dialogs.id, bobDialogId));
+      await app.db.insert(messages).values({
+        dialogId: caraDialogId,
+        senderId: alice.id,
+        seq: 1,
+        body: "from alice",
+        clientMsgId: randomUUID(),
+        createdAt: new Date("2026-10-29T19:00:00.000Z"),
+      });
+      await app.db.update(dialogs).set({ lastSeq: 1 }).where(eq(dialogs.id, caraDialogId));
+      await app.db
+        .update(dialogCursors)
+        .set({ lastDeliveredSeq: 1 })
+        .where(and(eq(dialogCursors.dialogId, caraDialogId), eq(dialogCursors.userId, cara.id)));
+
+      const withDave = await app.inject({
+        method: "POST",
+        url: "/api/dialogs",
+        headers: { cookie: alice.cookie },
+        payload: { username: "dave" },
+      });
+      const daveDialogId = withDave.json().id as string;
+      const previous = hub.socketCount;
+      try {
+        const listed = await app.inject({
+          method: "GET",
+          url: "/api/dialogs",
+          headers: { cookie: alice.cookie },
+        });
+        expect(listed.statusCode).toBe(200);
+        const items = listed.json() as Array<{
+          id: string;
+          peer: { id: string; username: string; online: boolean };
+          lastMessage: { senderId: string; status: string | null; body: string } | null;
+          unreadCount: number;
+          blocked: boolean;
+        }>;
+        expect(items.map((item) => item.id)).toEqual([caraDialogId, bobDialogId, daveDialogId]);
+        expect(items[0]?.lastMessage).toMatchObject({ senderId: alice.id, body: "from alice", status: "delivered" });
+        expect(items[1]?.lastMessage).toMatchObject({ senderId: bob.id, body: "from bob", status: null });
+        expect(items[2]?.lastMessage).toBeNull();
+        expect(items.map((item) => item.unreadCount)).toEqual([0, 1, 0]);
+        expect(items.every((item) => item.peer.online === false && item.blocked === false)).toBe(true);
+
+        hub.socketCount = () => 1;
+        const online = await app.inject({
+          method: "GET",
+          url: "/api/dialogs",
+          headers: { cookie: alice.cookie },
+        });
+        expect(online.json().every((item: { peer: { online: boolean } }) => item.peer.online)).toBe(true);
+
+        await app.db.insert(blocks).values({ blockerId: alice.id, blockedId: bob.id });
+        const blocked = await app.inject({
+          method: "GET",
+          url: "/api/dialogs",
+          headers: { cookie: alice.cookie },
+        });
+        const bobItem = blocked.json().find((item: { id: string }) => item.id === bobDialogId);
+        const caraItem = blocked.json().find((item: { id: string }) => item.id === caraDialogId);
+        expect(bobItem).toMatchObject({ blocked: true, peer: { id: bob.id, online: false } });
+        expect(caraItem).toMatchObject({ blocked: false, peer: { id: cara.id, online: true } });
+        expect(dave.id).toBeTypeOf("string");
+      } finally {
+        hub.socketCount = previous;
+      }
+    });
+
+    it("returns an empty list for a user with no dialogs", async () => {
+      const erin = await registerUser(app, "erin");
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/dialogs",
+        headers: { cookie: erin.cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([]);
+    });
+
+    it("requires a session to list dialogs", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/dialogs" });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({ error: "unauthorized" });
     });
   });
 });

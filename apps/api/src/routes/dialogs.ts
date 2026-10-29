@@ -19,4 +19,9 @@ export async function dialogRoutes(app: FastifyInstance): Promise<void> {
     const { dialog, created } = await dialogs.open(actor.userId, parsed.data.username);
     return reply.status(created ? 201 : 200).send(dialog);
   });
+
+  app.get("/", async (request, reply) => {
+    const actor = await requireUser(app, request);
+    return reply.send(await dialogs.list(actor.userId));
+  });
 }
