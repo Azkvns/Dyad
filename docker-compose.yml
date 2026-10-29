@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dyad
+      POSTGRES_PASSWORD: dyad
+      POSTGRES_DB: dyad
+    ports:
+      - "5432:5432"
+    volumes:
+      - dyad_pg:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dyad -d dyad"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  dyad_pg:
