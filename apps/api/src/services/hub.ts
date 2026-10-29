@@ -18,6 +18,7 @@ export type HubSocket = {
 type HubLog = { error: (obj: unknown, msg?: string) => void };
 
 const sockets = new Map<string, Set<HubSocket>>();
+const presenceSent = new Map<string, boolean>();
 let database: AppDatabase | null = null;
 let logger: HubLog | null = null;
 let pending: Promise<void> = Promise.resolve();
@@ -44,6 +45,15 @@ export function flushHub(): Promise<void> {
 
 export function clearHub(): void {
   sockets.clear();
+  presenceSent.clear();
+}
+
+function emitPresence(recipientId: string, userId: string, online: boolean): void {
+  if (sizeOf(recipientId) === 0) return;
+  const key = `${recipientId}:${userId}`;
+  if (presenceSent.get(key) === online) return;
+  presenceSent.set(key, online);
+  hub.send(recipientId, { type: "presence", userId, online });
 }
 
 async function notifyPresence(userId: string, online: boolean): Promise<void> {
@@ -58,7 +68,24 @@ async function notifyPresence(userId: string, online: boolean): Promise<void> {
     if (online ? sizeOf(userId) === 0 : sizeOf(userId) > 0) return;
     const peerId = row.userLow === userId ? row.userHigh : row.userLow;
     if (await blocks.isBlocked(userId, peerId)) continue;
-    hub.send(peerId, { type: "presence", userId, online });
+    emitPresence(peerId, userId, online);
+  }
+}
+
+async function announceOnlinePeers(userId: string): Promise<void> {
+  if (!database || !z.uuid().safeParse(userId).success || sizeOf(userId) === 0) return;
+  const rows = await database
+    .select({ userLow: dialogs.userLow, userHigh: dialogs.userHigh })
+    .from(dialogs)
+    .where(or(eq(dialogs.userLow, userId), eq(dialogs.userHigh, userId)));
+  if (sizeOf(userId) === 0) return;
+  const blocks = new BlockService(database);
+  for (const row of rows) {
+    if (sizeOf(userId) === 0) return;
+    const peerId = row.userLow === userId ? row.userHigh : row.userLow;
+    if (sizeOf(peerId) === 0) continue;
+    if (await blocks.isBlocked(userId, peerId)) continue;
+    emitPresence(userId, peerId, true);
   }
 }
 
@@ -92,7 +119,12 @@ export const hub = {
     }
     const added = !set.has(socket);
     set.add(socket);
-    if (added && before === 0 && set.size === 1) schedule(() => notifyPresence(userId, true));
+    if (added && before === 0 && set.size === 1) {
+      schedule(async () => {
+        await notifyPresence(userId, true);
+        await announceOnlinePeers(userId);
+      });
+    }
   },
   detach(userId: string, socket: HubSocket): void {
     const set = sockets.get(userId);

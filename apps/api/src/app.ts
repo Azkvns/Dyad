@@ -1,6 +1,7 @@
 import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createDatabase, type AppDatabase } from "./db/client";
+import { attachGateway } from "./gateway";
 import { HttpError } from "./http-error";
 import { authRoutes } from "./routes/auth";
 import { bindHub } from "./services/hub";
@@ -18,6 +19,7 @@ declare module "fastify" {
 export async function buildApp(options: {
   databaseUrl: string;
   logger: boolean;
+  idleMs?: number;
 }): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger });
   const database = createDatabase(options.databaseUrl);
@@ -39,6 +41,7 @@ export async function buildApp(options: {
   await app.register(dialogRoutes, { prefix: "/api/dialogs" });
   await app.register(blockRoutes, { prefix: "/api/blocks" });
   await app.register(reportRoutes, { prefix: "/api/reports" });
+  attachGateway(app, options.idleMs);
   if (process.env.NODE_ENV === "test") {
     app.get("/__test/boom", async () => {
       throw new Error("relation users does not exist");
