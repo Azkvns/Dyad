@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
 import { blocks, dialogCursors, dialogs, messages } from "../src/db/schema";
-import { hub } from "../src/services/hub";
+import { flushHub, hub } from "../src/services/hub";
 import { resetDatabase, testDatabaseUrl } from "./helpers";
 import { registerUser } from "./http";
 
@@ -20,6 +20,7 @@ describe("dialogs", () => {
   });
 
   beforeEach(async () => {
+    await flushHub();
     await resetDatabase(app.db);
   });
 

@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { createDatabase, type AppDatabase } from "./db/client";
 import { HttpError } from "./http-error";
 import { authRoutes } from "./routes/auth";
+import { bindHub } from "./services/hub";
 import { blockRoutes } from "./routes/blocks";
 import { dialogRoutes } from "./routes/dialogs";
 import { reportRoutes } from "./routes/reports";
@@ -21,6 +22,7 @@ export async function buildApp(options: {
   const app = Fastify({ logger: options.logger });
   const database = createDatabase(options.databaseUrl);
   app.decorate("db", database.db);
+  bindHub(database.db, app.log);
   app.addHook("onClose", async () => {
     await database.close();
   });

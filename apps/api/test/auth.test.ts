@@ -5,6 +5,7 @@ import { buildApp } from "../src/app";
 import { sessions, users } from "../src/db/schema";
 import { listenOptions } from "../src/listen";
 import { sessionCookieOptions } from "../src/session-cookie";
+import { flushHub } from "../src/services/hub";
 import { resetDatabase, sessionCookie, testDatabaseUrl } from "./helpers";
 
 describe("session cookie options", () => {
@@ -32,6 +33,7 @@ describe("auth", () => {
   });
 
   beforeEach(async () => {
+    await flushHub();
     await resetDatabase(app.db);
   });
 
