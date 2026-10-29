@@ -1,0 +1,10 @@
+{
+  "name": "dyad",
+  "private": true,
+  "packageManager": "pnpm@10.18.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --filter api dev",
+    "test": "pnpm -r --if-present test"
+  }
+}
