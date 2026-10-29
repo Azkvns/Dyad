@@ -1,11 +1,13 @@
-import { openDialogBodySchema, zodIssuesToFields } from "contracts";
+import { dialogParamsSchema, openDialogBodySchema, sendMessageBodySchema, zodIssuesToFields } from "contracts";
 import type { FastifyInstance } from "fastify";
 import { requireUser } from "../current-user";
 import { HttpError } from "../http-error";
 import { DialogService } from "../services/dialog-service";
+import { MessageService } from "../services/message-service";
 
 export async function dialogRoutes(app: FastifyInstance): Promise<void> {
   const dialogs = new DialogService(app.db);
+  const messageService = new MessageService(app.db);
 
   app.post("/", async (request, reply) => {
     const actor = await requireUser(app, request);
@@ -23,5 +25,30 @@ export async function dialogRoutes(app: FastifyInstance): Promise<void> {
   app.get("/", async (request, reply) => {
     const actor = await requireUser(app, request);
     return reply.send(await dialogs.list(actor.userId));
+  });
+
+  app.post("/:id/messages", async (request, reply) => {
+    const actor = await requireUser(app, request);
+    const params = dialogParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      throw new HttpError(400, {
+        error: "validation_error",
+        fields: zodIssuesToFields(params.error.issues),
+      });
+    }
+    const parsed = sendMessageBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new HttpError(400, {
+        error: "validation_error",
+        fields: zodIssuesToFields(parsed.error.issues),
+      });
+    }
+    const { message, created } = await messageService.send(
+      actor.userId,
+      params.data.id,
+      parsed.data.body,
+      parsed.data.clientMsgId,
+    );
+    return reply.status(created ? 201 : 200).send(message);
   });
 }
