@@ -1,13 +1,15 @@
-import { dialogParamsSchema, openDialogBodySchema, sendMessageBodySchema, zodIssuesToFields } from "contracts";
-import type { FastifyInstance } from "fastify";
+import { cursorBodySchema, dialogParamsSchema, openDialogBodySchema, sendMessageBodySchema, zodIssuesToFields } from "contracts";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireUser } from "../current-user";
 import { HttpError } from "../http-error";
+import { CursorService } from "../services/cursor-service";
 import { DialogService } from "../services/dialog-service";
 import { MessageService } from "../services/message-service";
 
 export async function dialogRoutes(app: FastifyInstance): Promise<void> {
   const dialogs = new DialogService(app.db);
   const messageService = new MessageService(app.db);
+  const cursors = new CursorService(app.db);
 
   app.post("/", async (request, reply) => {
     const actor = await requireUser(app, request);
@@ -51,4 +53,33 @@ export async function dialogRoutes(app: FastifyInstance): Promise<void> {
     );
     return reply.status(created ? 201 : 200).send(message);
   });
+
+  app.post("/:id/delivered", async (request, reply) => {
+    return moveCursor(request, reply, "delivered");
+  });
+
+  app.post("/:id/read", async (request, reply) => {
+    return moveCursor(request, reply, "read");
+  });
+
+  async function moveCursor(request: FastifyRequest, reply: FastifyReply, kind: "delivered" | "read") {
+    const actor = await requireUser(app, request);
+    const params = dialogParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      throw new HttpError(400, {
+        error: "validation_error",
+        fields: zodIssuesToFields(params.error.issues),
+      });
+    }
+    const parsed = cursorBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new HttpError(400, {
+        error: "validation_error",
+        fields: zodIssuesToFields(parsed.error.issues),
+      });
+    }
+    if (kind === "delivered") await cursors.delivered(actor.userId, params.data.id, parsed.data.seq);
+    else await cursors.read(actor.userId, params.data.id, parsed.data.seq);
+    return reply.status(204).send();
+  }
 }
