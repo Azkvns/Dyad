@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
-import { blocks, dialogs, messages } from "../src/db/schema";
+import { blocks, dialogCursors, dialogs, messages } from "../src/db/schema";
 import { hub } from "../src/services/hub";
 import { withSeqRetry } from "../src/services/message-service";
 import { resetDatabase, testDatabaseUrl } from "./helpers";
@@ -193,6 +193,151 @@ describe("messages", () => {
     const stored = await app.db.select().from(messages);
     expect(stored).toHaveLength(1);
     expect(stored[0]?.body).toBe("planted");
+  });
+
+  describe("history", () => {
+    async function sendFive() {
+      const pair = await openPair();
+      for (const body of ["m1", "m2", "m3", "m4", "m5"]) {
+        const response = await send(pair.alice.cookie, pair.dialogId, body, randomUUID());
+        expect(response.statusCode).toBe(201);
+      }
+      return pair;
+    }
+
+    function history(cookie: string, dialogId: string, query = "") {
+      return app.inject({
+        method: "GET",
+        url: `/api/dialogs/${dialogId}/messages${query}`,
+        headers: { cookie },
+      });
+    }
+
+    async function bobCursor(dialogId: string, bobId: string) {
+      const rows = await app.db
+        .select()
+        .from(dialogCursors)
+        .where(and(eq(dialogCursors.dialogId, dialogId), eq(dialogCursors.userId, bobId)));
+      return rows[0];
+    }
+
+    it("pages history and marks only the tail delivered", async () => {
+      const { alice, bob, dialogId } = await sendFive();
+      expect(await bobCursor(dialogId, bob.id)).toMatchObject({ lastDeliveredSeq: 0, lastReadSeq: 0 });
+
+      const tail = await history(alice.cookie, dialogId, "?limit=2");
+      expect(tail.statusCode).toBe(200);
+      expect(tail.json().messages.map((message: { seq: number }) => message.seq)).toEqual([4, 5]);
+      expect(tail.json().nextBeforeSeq).toBe(4);
+      expect(tail.json().messages.every((message: { status: string }) => message.status === "sent")).toBe(true);
+
+      const bobTail = await history(bob.cookie, dialogId, "?beforeSeq=6&limit=2");
+      expect(bobTail.json().messages.map((message: { seq: number; status: string | null }) => message.status)).toEqual([
+        null,
+        null,
+      ]);
+      expect(await bobCursor(dialogId, bob.id)).toMatchObject({ lastDeliveredSeq: 0, lastReadSeq: 0 });
+
+      const pageTwo = await history(alice.cookie, dialogId, "?beforeSeq=5&limit=2");
+      expect(pageTwo.json().messages.map((message: { seq: number }) => message.seq)).toEqual([3, 4]);
+      expect(pageTwo.json().nextBeforeSeq).toBe(3);
+      const pageThree = await history(alice.cookie, dialogId, "?beforeSeq=3&limit=2");
+      expect(pageThree.json().messages.map((message: { seq: number }) => message.seq)).toEqual([1, 2]);
+      expect(pageThree.json().nextBeforeSeq).toBe(1);
+      const pageEmpty = await history(alice.cookie, dialogId, "?beforeSeq=1&limit=2");
+      expect(pageEmpty.json()).toEqual({ messages: [], nextBeforeSeq: null });
+
+      const calls: unknown[] = [];
+      const previous = hub.broadcastCursor;
+      hub.broadcastCursor = (id, state) => {
+        calls.push({ id, state });
+      };
+      try {
+        const older = await history(bob.cookie, dialogId, "?beforeSeq=5&limit=2");
+        expect(older.statusCode).toBe(200);
+        expect(await bobCursor(dialogId, bob.id)).toMatchObject({ lastDeliveredSeq: 0, lastReadSeq: 0 });
+        expect(calls).toHaveLength(0);
+
+        const delivered = await history(bob.cookie, dialogId, "?limit=2");
+        expect(delivered.json().messages.map((message: { seq: number; status: string | null }) => [message.seq, message.status])).toEqual([
+          [4, null],
+          [5, null],
+        ]);
+        expect(await bobCursor(dialogId, bob.id)).toMatchObject({ lastDeliveredSeq: 5, lastReadSeq: 0 });
+        expect(calls).toHaveLength(1);
+        const again = await history(bob.cookie, dialogId, "?limit=2");
+        expect(again.statusCode).toBe(200);
+        expect(await bobCursor(dialogId, bob.id)).toMatchObject({ lastDeliveredSeq: 5, lastReadSeq: 0 });
+        expect(calls).toHaveLength(1);
+      } finally {
+        hub.broadcastCursor = previous;
+      }
+
+      const aliceHistory = await history(alice.cookie, dialogId, "?limit=2");
+      expect(aliceHistory.json().messages.every((message: { status: string }) => message.status === "delivered")).toBe(true);
+      const aliceList = await app.inject({
+        method: "GET",
+        url: "/api/dialogs",
+        headers: { cookie: alice.cookie },
+      });
+      const bobList = await app.inject({
+        method: "GET",
+        url: "/api/dialogs",
+        headers: { cookie: bob.cookie },
+      });
+      expect(aliceList.json()[0].unreadCount).toBe(0);
+      expect(bobList.json()[0].unreadCount).toBe(5);
+    });
+
+    it("leaves cursors alone for an empty dialog", async () => {
+      const { alice, bob, dialogId } = await openPair();
+      const calls: unknown[] = [];
+      const previous = hub.broadcastCursor;
+      hub.broadcastCursor = () => {
+        calls.push(true);
+      };
+      try {
+        const response = await history(alice.cookie, dialogId);
+        expect(response.json()).toEqual({ messages: [], nextBeforeSeq: null });
+        expect(await bobCursor(dialogId, bob.id)).toMatchObject({ lastDeliveredSeq: 0, lastReadSeq: 0 });
+        expect(await bobCursor(dialogId, alice.id)).toMatchObject({ lastDeliveredSeq: 0, lastReadSeq: 0 });
+        expect(calls).toHaveLength(0);
+      } finally {
+        hub.broadcastCursor = previous;
+      }
+    });
+
+    it("defaults the page size to at most 50", async () => {
+      const { alice, dialogId } = await sendFive();
+      const response = await history(alice.cookie, dialogId);
+      expect(response.statusCode).toBe(200);
+      expect(response.json().messages.length).toBeLessThanOrEqual(50);
+      expect(response.json().messages).toHaveLength(5);
+      expect(response.json().nextBeforeSeq).toBeNull();
+    });
+
+    it("rejects a limit outside 1..100", async () => {
+      const { alice, dialogId } = await sendFive();
+      const zero = await history(alice.cookie, dialogId, "?limit=0");
+      const huge = await history(alice.cookie, dialogId, "?limit=101");
+      expect(zero.statusCode).toBe(400);
+      expect(zero.json()).toEqual({ error: "validation_error", fields: { limit: "too_short" } });
+      expect(huge.json()).toEqual({ error: "validation_error", fields: { limit: "too_long" } });
+    });
+
+    it("hides a foreign dialog", async () => {
+      const { alice, bob } = await openPair();
+      await registerUser(app, "cara");
+      const foreign = await app.inject({
+        method: "POST",
+        url: "/api/dialogs",
+        headers: { cookie: bob.cookie },
+        payload: { username: "cara" },
+      });
+      const response = await history(alice.cookie, foreign.json().id as string);
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "not_found" });
+    });
   });
 });
 

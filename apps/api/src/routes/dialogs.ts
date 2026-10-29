@@ -1,4 +1,11 @@
-import { cursorBodySchema, dialogParamsSchema, openDialogBodySchema, sendMessageBodySchema, zodIssuesToFields } from "contracts";
+import {
+  cursorBodySchema,
+  dialogParamsSchema,
+  historyQuerySchema,
+  openDialogBodySchema,
+  sendMessageBodySchema,
+  zodIssuesToFields,
+} from "contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireUser } from "../current-user";
 import { HttpError } from "../http-error";
@@ -52,6 +59,27 @@ export async function dialogRoutes(app: FastifyInstance): Promise<void> {
       parsed.data.clientMsgId,
     );
     return reply.status(created ? 201 : 200).send(message);
+  });
+
+  app.get("/:id/messages", async (request, reply) => {
+    const actor = await requireUser(app, request);
+    const params = dialogParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      throw new HttpError(400, {
+        error: "validation_error",
+        fields: zodIssuesToFields(params.error.issues),
+      });
+    }
+    const query = historyQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      throw new HttpError(400, {
+        error: "validation_error",
+        fields: zodIssuesToFields(query.error.issues),
+      });
+    }
+    return reply.send(
+      await messageService.history(actor.userId, params.data.id, query.data.beforeSeq ?? null, query.data.limit),
+    );
   });
 
   app.post("/:id/delivered", async (request, reply) => {

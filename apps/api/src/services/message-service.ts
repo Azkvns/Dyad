@@ -1,10 +1,11 @@
 import type { MessageView } from "contracts";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, lt, sql } from "drizzle-orm";
 import type { AppDatabase } from "../db/client";
 import { isUniqueViolation } from "../db/pg-error";
 import { dialogCursors, dialogs, messages } from "../db/schema";
 import { HttpError } from "../http-error";
 import { BlockService } from "./block-service";
+import { CursorService } from "./cursor-service";
 import { DialogService } from "./dialog-service";
 import { hub } from "./hub";
 import { messageStatus } from "./message-status";
@@ -51,6 +52,42 @@ export class MessageService {
       });
     }
     return { message, created: outcome.created };
+  }
+
+  async history(actorId: string, dialogId: string, beforeSeq: number | null, limit: number) {
+    const dialog = await new DialogService(this.db).requireParticipant(actorId, dialogId);
+    const filters = [eq(messages.dialogId, dialogId)];
+    if (beforeSeq !== null) filters.push(lt(messages.seq, beforeSeq));
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .where(and(...filters))
+      .orderBy(desc(messages.seq))
+      .limit(limit);
+    const page = rows.reverse();
+    const nextBeforeSeq = page.length < limit ? null : (page[0]?.seq ?? null);
+    const cursors = await this.db
+      .select({
+        lastDeliveredSeq: dialogCursors.lastDeliveredSeq,
+        lastReadSeq: dialogCursors.lastReadSeq,
+      })
+      .from(dialogCursors)
+      .where(and(eq(dialogCursors.dialogId, dialogId), eq(dialogCursors.userId, dialog.peerId)))
+      .limit(1);
+    const peer = cursors[0] ?? null;
+    const messagePage = page.map((row) => ({
+      id: row.id,
+      seq: row.seq,
+      senderId: row.senderId,
+      body: row.body,
+      createdAt: row.createdAt.toISOString(),
+      status: messageStatus(row.senderId === actorId, row.seq, peer),
+    }));
+    const newest = messagePage[messagePage.length - 1];
+    if (beforeSeq === null && newest) {
+      await new CursorService(this.db).delivered(actorId, dialogId, newest.seq);
+    }
+    return { messages: messagePage, nextBeforeSeq };
   }
 
   private async insertOrReplay(dialogId: string, actorId: string, body: string, clientMsgId: string) {
