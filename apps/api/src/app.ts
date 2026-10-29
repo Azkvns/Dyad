@@ -5,6 +5,7 @@ import { HttpError } from "./http-error";
 import { authRoutes } from "./routes/auth";
 import { blockRoutes } from "./routes/blocks";
 import { dialogRoutes } from "./routes/dialogs";
+import { reportRoutes } from "./routes/reports";
 import { userRoutes } from "./routes/users";
 
 declare module "fastify" {
@@ -35,6 +36,7 @@ export async function buildApp(options: {
   await app.register(userRoutes, { prefix: "/api/users" });
   await app.register(dialogRoutes, { prefix: "/api/dialogs" });
   await app.register(blockRoutes, { prefix: "/api/blocks" });
+  await app.register(reportRoutes, { prefix: "/api/reports" });
   if (process.env.NODE_ENV === "test") {
     app.get("/__test/boom", async () => {
       throw new Error("relation users does not exist");
