@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { createDatabase, type AppDatabase } from "./db/client";
 import { HttpError } from "./http-error";
 import { authRoutes } from "./routes/auth";
+import { userRoutes } from "./routes/users";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -29,6 +30,7 @@ export async function buildApp(options: {
   });
   await app.register(cookie);
   await app.register(authRoutes, { prefix: "/api/auth" });
+  await app.register(userRoutes, { prefix: "/api/users" });
   if (process.env.NODE_ENV === "test") {
     app.get("/__test/boom", async () => {
       throw new Error("relation users does not exist");

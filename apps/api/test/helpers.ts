@@ -1,6 +1,14 @@
 import { sql } from "drizzle-orm";
 import type { AppDatabase } from "../src/db/client";
 
+export function sessionCookie(response: { headers: Record<string, string | string[] | undefined> }) {
+  const raw = response.headers["set-cookie"];
+  const header = Array.isArray(raw) ? raw.join("\n") : String(raw ?? "");
+  const match = /dyad_session=([^;]+)/.exec(header);
+  if (!match?.[1]) throw new Error(`missing dyad_session: ${header}`);
+  return { token: decodeURIComponent(match[1]), header };
+}
+
 export function testDatabaseUrl(): string {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL is required");

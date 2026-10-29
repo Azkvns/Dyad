@@ -5,15 +5,7 @@ import { buildApp } from "../src/app";
 import { sessions, users } from "../src/db/schema";
 import { listenOptions } from "../src/listen";
 import { sessionCookieOptions } from "../src/session-cookie";
-import { resetDatabase, testDatabaseUrl } from "./helpers";
-
-function sessionCookie(response: { headers: Record<string, string | string[] | undefined> }) {
-  const raw = response.headers["set-cookie"];
-  const header = Array.isArray(raw) ? raw.join("\n") : String(raw ?? "");
-  const match = /dyad_session=([^;]+)/.exec(header);
-  if (!match?.[1]) throw new Error(`missing dyad_session: ${header}`);
-  return { token: decodeURIComponent(match[1]), header };
-}
+import { resetDatabase, sessionCookie, testDatabaseUrl } from "./helpers";
 
 describe("session cookie options", () => {
   it("sets Secure only in production", () => {
