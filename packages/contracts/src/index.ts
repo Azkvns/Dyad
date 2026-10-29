@@ -19,3 +19,7 @@ export { passwordSchema } from "./password";
 export { lookupQuerySchema, publicUserSchema } from "./user";
 export type { LookupQuery, PublicUser } from "./user";
 export { storedUsernameSchema, usernameSchema } from "./username";
+export { clientFrameSchema, serverFrameSchema } from "./frame";
+export type { ClientFrame, ServerFrame } from "./frame";
+export { createReportBodySchema, reportListItemSchema, reportReasonSchema } from "./report";
+export type { CreateReportBody, ReportListItem, ReportReason } from "./report";
