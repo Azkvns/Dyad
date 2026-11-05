@@ -5,5 +5,5 @@ import { listenOptions } from "./listen";
 
 const env = readEnv();
 await migrateDb(env.DATABASE_URL);
-const app = await buildApp({ databaseUrl: env.DATABASE_URL, logger: true });
+const app = await buildApp({ databaseUrl: env.DATABASE_URL, logger: true, webDist: env.WEB_DIST });
 await app.listen(listenOptions(env));

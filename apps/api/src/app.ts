@@ -9,6 +9,7 @@ import { blockRoutes } from "./routes/blocks";
 import { dialogRoutes } from "./routes/dialogs";
 import { reportRoutes } from "./routes/reports";
 import { userRoutes } from "./routes/users";
+import { registerWeb } from "./web-dist";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -20,6 +21,7 @@ export async function buildApp(options: {
   databaseUrl: string;
   logger: boolean;
   idleMs?: number;
+  webDist?: string;
 }): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger });
   const database = createDatabase(options.databaseUrl);
@@ -42,6 +44,7 @@ export async function buildApp(options: {
   await app.register(blockRoutes, { prefix: "/api/blocks" });
   await app.register(reportRoutes, { prefix: "/api/reports" });
   attachGateway(app, options.idleMs);
+  await registerWeb(app, options.webDist);
   if (process.env.NODE_ENV === "test") {
     app.get("/__test/boom", async () => {
       throw new Error("relation users does not exist");

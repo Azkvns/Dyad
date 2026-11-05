@@ -9,5 +9,6 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env) {
     DATABASE_URL: databaseUrl,
     PORT: port,
     NODE_ENV: source.NODE_ENV ?? "development",
+    WEB_DIST: source.WEB_DIST?.trim() || undefined,
   };
 }

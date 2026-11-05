@@ -16,5 +16,20 @@ services:
       timeout: 5s
       retries: 20
 
+  dyad:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://dyad:dyad@postgres:5432/dyad
+      PORT: "3000"
+      NODE_ENV: development
+      WEB_DIST: /app/apps/web/dist
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   dyad_pg:
