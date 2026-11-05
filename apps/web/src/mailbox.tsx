@@ -42,7 +42,9 @@ export function Mailbox({
   const sendRef = useRef<((frame: ClientFrame) => void) | null>(null);
   const queued = useRef<ClientFrame[]>([]);
   const apiRef = useRef(api);
+  const navigateRef = useRef(navigate);
   apiRef.current = api;
+  navigateRef.current = navigate;
 
   function flush(frame: ClientFrame): void {
     if (sendRef.current) sendRef.current(frame);
@@ -94,20 +96,20 @@ export function Mailbox({
             dispatch({ type: "frame", frame });
           },
           onReady: () => dispatch({ type: "ready" }),
-          onUnauthorized: () => navigate("/login"),
+          onUnauthorized: () => navigateRef.current("/login"),
         });
         sendRef.current = handle.send;
         for (const frame of queued.current) handle.send(frame);
         queued.current = [];
       } catch {
-        if (!cancelled) navigate("/login");
+        if (!cancelled) navigateRef.current("/login");
       }
     })();
     return () => {
       cancelled = true;
       handle?.close();
     };
-  }, [api, connect, navigate]);
+  }, [connect]);
 
   useEffect(() => {
     if (!meId || !dialogId) return;

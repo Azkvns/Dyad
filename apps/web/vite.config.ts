@@ -21,5 +21,6 @@ export default defineConfig({
     environment: "jsdom",
     fileParallelism: false,
     globals: true,
+    exclude: ["e2e/**", "node_modules/**", "dist/**"],
   },
 });

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
 import { createApi } from "./api";
 import { Mailbox } from "./mailbox";
@@ -8,7 +8,9 @@ import { connectSocket } from "./socket";
 
 export function App() {
   const navigate = useNavigate();
-  const onUnauthorized = useCallback(() => navigate("/login"), [navigate]);
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const onUnauthorized = useCallback(() => navigateRef.current("/login"), []);
   const api = useMemo(() => createApi(fetch, onUnauthorized), [onUnauthorized]);
   return (
     <Routes>

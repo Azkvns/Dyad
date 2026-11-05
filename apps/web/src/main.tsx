@@ -8,7 +8,7 @@ const root = document.getElementById("root");
 if (!root) throw new Error("root missing");
 createRoot(root).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter useTransitions={false}>
       <App />
     </BrowserRouter>
   </StrictMode>,
