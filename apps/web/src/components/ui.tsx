@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 export function Avatar({ username, online = false }: { username: string; online?: boolean }) {
   const tone = [...username].reduce((sum, letter) => sum + letter.charCodeAt(0), 0) % 4;
@@ -29,12 +29,16 @@ export function Disclosure({ label, children }: { label: string; children: React
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
+    if (!el) return;
     const previous = document.activeElement as HTMLElement | null;
-    if (el?.showModal) el.showModal();
-    else el?.setAttribute("open", "");
-    return () => { el?.close?.(); if (previous?.isConnected) previous.focus(); };
+    const preferred = el.querySelector<HTMLElement>("[data-autofocus]");
+    if (preferred) preferred.setAttribute("autofocus", "");
+    if (el.showModal) el.showModal();
+    else el.setAttribute("open", "");
+    preferred?.focus();
+    return () => { el.close?.(); if (previous?.isConnected) previous.focus(); };
   }, []);
   return <dialog ref={ref} className="modal" aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose(); }}><header><h2 id={titleId}>{title}</h2><button className="icon-button ghost" type="button" onClick={onClose} aria-label="Закрыть">×</button></header>{children}</dialog>;
 }

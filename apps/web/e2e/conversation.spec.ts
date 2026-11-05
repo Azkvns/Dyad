@@ -9,8 +9,8 @@ function username(prefix: string): string {
 
 async function register(page: Page, name: string): Promise<void> {
   await page.goto("/register");
-  await page.getByLabel("Логин").fill(name);
-  await page.getByLabel("Пароль").fill("password1");
+  await page.getByLabel("Логин", { exact: true }).fill(name);
+  await page.getByLabel("Пароль", { exact: true }).fill("password1");
   await page.getByRole("button", { name: "Зарегистрироваться" }).click();
   await expect(page.getByRole("heading", { name: "Сообщения" })).toBeVisible();
 }
