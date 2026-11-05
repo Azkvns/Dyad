@@ -32,7 +32,27 @@ export function Mailbox({
   const dialogId = routeId && uuidPattern.test(routeId) ? routeId : null;
   const [meId, setMeId] = useState<string | null>(null);
   const [live, setLive] = useState<LiveState | null>(null);
-  const [draft, setDraft] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draft = dialogId ? drafts[dialogId] ?? "" : "";
+  const [peerPending, setPeerPending] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
+  const [reportPending, setReportPending] = useState(false);
+  const [olderPending, setOlderPending] = useState(false);
+  const [historyPending, setHistoryPending] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [unavailableId, setUnavailableId] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const locks = useRef(new Set<string>());
+  const activeRoute = useRef(location.pathname);
+  activeRoute.current = location.pathname;
+  const reportTarget = useRef<string | null>(null);
+  function failure(error: unknown): string {
+    return error instanceof ApiError ? errorText(error.status, error.body) : "Не получилось выполнить запрос. Попробуйте ещё раз.";
+  }
+  function setDraft(value: string) {
+    if (dialogId) setDrafts(current => ({ ...current, [dialogId]: value }));
+  }
   const [peerUsername, setPeerUsername] = useState("");
   const [peerError, setPeerError] = useState<string | null>(null);
   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
@@ -57,7 +77,7 @@ export function Mailbox({
     const result = reduceLive(current, event);
     liveRef.current = result.state;
     setLive(result.state);
-    for (const effect of result.effects) void runEffect(effect);
+    for (const effect of result.effects) void runEffect(effect).catch(error => setLoadError(failure(error)));
   }
 
   async function runEffect(effect: LiveEffect): Promise<void> {
@@ -81,10 +101,12 @@ export function Mailbox({
       try {
         const user = await api.me();
         if (cancelled) return;
-        const state = initialLive(user.id);
-        liveRef.current = state;
+        if (!liveRef.current || liveRef.current.meId !== user.id) {
+          const state = initialLive(user.id);
+          liveRef.current = state;
+          setLive(state);
+        }
         setMeId(user.id);
-        setLive(state);
         const [dialogs, blocks] = await Promise.all([api.listDialogs(), api.listBlocks()]);
         if (cancelled) return;
         dispatch({ type: "dialogs", dialogs });
@@ -101,51 +123,67 @@ export function Mailbox({
         sendRef.current = handle.send;
         for (const frame of queued.current) handle.send(frame);
         queued.current = [];
-      } catch {
-        if (!cancelled) navigateRef.current("/login");
+      } catch (error) {
+        if (!cancelled) {
+          if (error instanceof ApiError && error.status === 401) navigateRef.current("/login");
+          else setLoadError(failure(error));
+        }
       }
     })();
     return () => {
       cancelled = true;
       handle?.close();
+      sendRef.current = null;
     };
-  }, [connect]);
+  }, [connect, reload]);
 
   useEffect(() => {
     if (!meId || !dialogId) return;
     let cancelled = false;
+    setHistoryPending(true);
+    setUnavailableId(null);
+    setActionError(null);
+    setReportMessageId(null);
+    reportTarget.current = null;
+    setReportNote(null);
     dispatch({ type: "open", dialogId });
     void api.history(dialogId, null).then((page) => {
       if (!cancelled) dispatch({ type: "history", dialogId, page });
-    });
+    }).catch(error => { if (!cancelled) {
+      if (error instanceof ApiError && error.status === 404) setUnavailableId(dialogId);
+      else setLoadError(failure(error));
+    } }).finally(() => { if (!cancelled) setHistoryPending(false); });
     return () => {
       cancelled = true;
     };
-  }, [dialogId, meId]);
+  }, [dialogId, meId, reload]);
 
   useEffect(() => {
     if (!meId || location.pathname !== "/blocks") return;
     let cancelled = false;
     void api.listBlocks().then((items) => {
       if (!cancelled) dispatch({ type: "blocks", usernames: items.map((item) => item.username) });
-    });
+    }).catch(error => { if (!cancelled) setLoadError(failure(error)); });
     return () => {
       cancelled = true;
     };
-  }, [location.pathname, meId, api]);
+  }, [location.pathname, meId, api, reload]);
 
   useEffect(() => {
     if (!meId || location.pathname !== "/reports") return;
     let cancelled = false;
     void api.listReports().then((items) => {
       if (!cancelled) setReports(items);
-    });
+    }).catch(error => { if (!cancelled) setLoadError(failure(error)); });
     return () => {
       cancelled = true;
     };
-  }, [location.pathname, meId, api]);
+  }, [location.pathname, meId, api, reload]);
 
   async function openPeer(): Promise<void> {
+    if (locks.current.has("peer")) return;
+    locks.current.add("peer");
+    setPeerPending(true);
     setPeerError(null);
     try {
       const opened = await api.openDialog(peerUsername);
@@ -161,42 +199,62 @@ export function Mailbox({
       });
       setPeerUsername("");
       navigate(`/dialogs/${opened.id}`);
-      dispatch({ type: "dialogs", dialogs: await api.listDialogs() });
+      void api.listDialogs().then(dialogs => dispatch({ type: "dialogs", dialogs })).catch(error => setLoadError(failure(error)));
     } catch (error) {
-      setPeerError(error instanceof ApiError ? errorText(error.status, error.body) : "Не получилось выполнить запрос");
-    }
+      setPeerError(failure(error));
+    } finally { locks.current.delete("peer"); setPeerPending(false); }
+  }
+
+  async function changeBlock(username: string, unblock: boolean): Promise<void> {
+    if (locks.current.has("block")) return;
+    locks.current.add("block"); setActionPending(true); setActionError(null);
+    const route = activeRoute.current;
+    try {
+      if (unblock) await api.unblock(username); else await api.block(username);
+      const [blocks, dialogs] = await Promise.all([api.listBlocks(), api.listDialogs()]);
+      dispatch({ type: "blocks", usernames: blocks.map(item => item.username) });
+      dispatch({ type: "dialogs", dialogs });
+    } catch (error) { if (route === activeRoute.current) setActionError(failure(error)); }
+    finally { locks.current.delete("block"); setActionPending(false); }
   }
 
   async function toggleBlock(): Promise<void> {
-    if (!live || !dialogId) return;
-    const current = live.dialogs.find((item) => item.id === dialogId);
-    if (!current) return;
-    if (live.blockedUsernames.includes(current.peer.username)) await api.unblock(current.peer.username);
-    else await api.block(current.peer.username);
-    dispatch({ type: "blocks", usernames: (await api.listBlocks()).map((item) => item.username) });
-    dispatch({ type: "dialogs", dialogs: await api.listDialogs() });
+    const current = live?.dialogs.find(item => item.id === dialogId);
+    if (current) await changeBlock(current.peer.username, live!.blockedUsernames.includes(current.peer.username));
   }
 
   async function pickReason(reason: ReportReason): Promise<void> {
-    if (!reportMessageId) return;
+    if (!reportMessageId || locks.current.has("report")) return;
+    const target = reportMessageId;
+    locks.current.add("report"); setReportPending(true);
     try {
-      await api.createReport(reportMessageId, reason);
-      setReportNote("Жалоба отправлена");
-    } catch (error) {
-      setReportNote(error instanceof ApiError ? errorText(error.status, error.body) : "Не получилось выполнить запрос");
-    }
+      await api.createReport(target, reason);
+      if (reportTarget.current === target) { setReportNote("Жалоба отправлена"); setReportMessageId(null); }
+    } catch (error) { if (reportTarget.current === target) setReportNote(failure(error)); }
+    finally { locks.current.delete("report"); setReportPending(false); }
   }
 
+  async function older(): Promise<void> {
+    if (!dialogId || !live || live.nextBeforeSeq === null || locks.current.has("older")) return;
+    locks.current.add("older"); setOlderPending(true); setActionError(null);
+    const route = activeRoute.current;
+    try {
+      const page = await api.history(dialogId, live.nextBeforeSeq);
+      dispatch({ type: "older", dialogId, page });
+    } catch (error) { if (activeRoute.current === route) setActionError(failure(error)); }
+    finally { locks.current.delete("older"); setOlderPending(false); }
+  }
+
+  const retryLoad = () => { setLoadError(null); setReload(value => value + 1); };
+  if (loadError) return <main className="subpage"><h1>Не удалось загрузить данные</h1><p className="error" role="alert">{loadError}</p><button onClick={retryLoad}>Повторить</button></main>;
   if (!live || !meId) return <p className="pick">Загрузка</p>;
   if (location.pathname === "/blocks") {
     return (
       <BlocksPage
         usernames={live.blockedUsernames}
-        onUnblock={(username) => {
-          void api.unblock(username).then(async () => {
-            dispatch({ type: "blocks", usernames: (await api.listBlocks()).map((item) => item.username) });
-          });
-        }}
+        pending={actionPending}
+        error={actionError}
+        onUnblock={(username) => void changeBlock(username, true)}
       />
     );
   }
@@ -205,7 +263,7 @@ export function Mailbox({
     return <ReportsPage reports={reports} />;
   }
 
-  const dialog = dialogId ? (live.dialogs.find((item) => item.id === dialogId) ?? null) : null;
+  const dialog = dialogId && unavailableId !== dialogId ? (live.dialogs.find((item) => item.id === dialogId) ?? null) : null;
   const missing = live.dialogsLoaded && routeId !== null && !dialog;
   return (
     <Workspace
@@ -216,14 +274,26 @@ export function Mailbox({
           selectedId={dialogId}
           peerUsername={peerUsername}
           peerError={peerError}
+          peerPending={peerPending}
+          loading={!live.dialogsLoaded}
           onPeerUsername={setPeerUsername}
           onOpenPeer={() => void openPeer()}
-          onLogout={() => void api.logout().then(() => navigate("/login"))}
+          onLogout={() => {
+            if (locks.current.has("logout")) return;
+            locks.current.add("logout");
+            void api.logout().then(() => navigate("/login")).catch(error => setLoadError(failure(error))).finally(() => locks.current.delete("logout"));
+          }}
         />
       }
       thread={
         <ThreadPane
+          key={dialogId ?? "empty"}
           dialog={dialog}
+          historyPending={historyPending}
+          olderPending={olderPending}
+          actionPending={actionPending}
+          reportPending={reportPending}
+          actionError={actionError}
           missing={missing}
           meId={meId}
           iBlocked={dialog ? live.blockedUsernames.includes(dialog.peer.username) : false}
@@ -236,23 +306,20 @@ export function Mailbox({
           onDraft={setDraft}
           onSend={() => {
             const body = draft.trim();
-            if (!body) return;
+            if (!body || live.openDialogId !== dialogId || dialog?.blocked) return;
             dispatch({ type: "compose", clientMsgId: crypto.randomUUID(), body });
             setDraft("");
           }}
           onRetry={(clientMsgId) => dispatch({ type: "retry", clientMsgId })}
-          onOlder={() => {
-            if (!dialogId || live.nextBeforeSeq === null) return;
-            const seq = live.nextBeforeSeq;
-            void api.history(dialogId, seq).then((page) => dispatch({ type: "older", dialogId, page }));
-          }}
+          onOlder={() => void older()}
           onToggleBlock={() => void toggleBlock()}
           onReport={(messageId) => {
+            reportTarget.current = messageId;
             setReportMessageId(messageId);
             setReportNote(null);
           }}
           onPickReason={(reason) => void pickReason(reason)}
-          onCloseReport={() => setReportMessageId(null)}
+          onCloseReport={() => { reportTarget.current = null; setReportMessageId(null); setReportNote(null); }}
         />
       }
     />

@@ -9,6 +9,7 @@ export function ReportsPage({ reports }: { reports: ReportListItem[] }) {
         <h1>Жалобы</h1>
         <Link to="/dialogs">К диалогам</Link>
       </header>
+      {reports.length === 0 && <p className="empty">Жалоб пока нет</p>}
       <ul className="report-list">
         {reports.map((report) => (
           <li key={report.id}>

@@ -26,7 +26,7 @@ describe("createApi", () => {
 
   it("redirects when me has no session and parses a dialog list", async () => {
     const onUnauthorized = vi.fn();
-    const fetchImpl = vi.fn(async (path: string) => {
+    const fetchImpl = vi.fn(async (path: Parameters<typeof fetch>[0]) => {
       if (path === "/api/auth/me") return jsonResponse(401, { error: "unauthorized" });
       return jsonResponse(200, [
         {
@@ -45,7 +45,7 @@ describe("createApi", () => {
   });
 
   it("opens a dialog on 201 and asks for an older page", async () => {
-    const fetchImpl = vi.fn(async (path: string) => {
+    const fetchImpl = vi.fn(async (path: Parameters<typeof fetch>[0]) => {
       if (String(path).startsWith("/api/dialogs?")) {
         return jsonResponse(404, { error: "not_found" });
       }

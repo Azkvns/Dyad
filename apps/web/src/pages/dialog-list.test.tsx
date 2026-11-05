@@ -45,6 +45,7 @@ describe("DialogList", () => {
     expect(document.querySelector(".workspace")?.getAttribute("data-thread")).toBe("open");
     expect(screen.getByLabelText("прочитано").textContent).toBe("✓✓");
     expect(screen.getByText("99+")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Новый диалог" }));
     fireEvent.click(screen.getByRole("button", { name: "Открыть" }));
     expect(onOpenPeer).toHaveBeenCalledOnce();
     expect(screen.getByRole("link", { name: /bob/ }).getAttribute("aria-current")).toBe("page");

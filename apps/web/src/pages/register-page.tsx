@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, type Api } from "../api";
+import { PasswordField } from "../components/ui";
 import { errorText } from "../format";
 
 export function RegisterPage({
@@ -16,23 +17,21 @@ export function RegisterPage({
   const [password, setPassword] = useState("");
   return (
     <main className="auth">
-      <form
+      <form noValidate
         className="auth-panel"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit(username, password);
+          if (!pending) onSubmit(username, password);
         }}
       >
         <h1 className="auth-mark">Dyad</h1>
+        <h2 className="auth-heading">Создать аккаунт</h2>
         <label>
           Логин
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
         </label>
-        <label>
-          Пароль
-          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" />
-        </label>
-        {error ? <p className="error">{error}</p> : null}
+        <PasswordField value={password} onChange={setPassword} autoComplete="new-password" />
+        {error ? <p className="error" role="alert">{error}</p> : null}
         <button type="submit" disabled={pending}>Зарегистрироваться</button>
         <Link to="/login">Вход</Link>
       </form>
@@ -49,6 +48,7 @@ export function RegisterRoute({ api }: { api: Api }) {
       error={error}
       pending={pending}
       onSubmit={(username, password) => {
+        if (pending) return;
         setPending(true);
         setError(null);
         void api.register(username, password).then(

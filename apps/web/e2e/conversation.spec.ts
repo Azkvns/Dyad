@@ -12,7 +12,7 @@ async function register(page: Page, name: string): Promise<void> {
   await page.getByLabel("Логин").fill(name);
   await page.getByLabel("Пароль").fill("password1");
   await page.getByRole("button", { name: "Зарегистрироваться" }).click();
-  await expect(page.getByLabel("логин собеседника")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Сообщения" })).toBeVisible();
 }
 
 test("two people exchange a live message", async ({ browser }) => {
@@ -25,6 +25,7 @@ test("two people exchange a live message", async ({ browser }) => {
   await register(alicePage, aliceName);
   await register(bobPage, bobName);
 
+  await alicePage.getByRole("button", { name: "Новый диалог" }).first().click();
   await alicePage.getByLabel("логин собеседника").fill(bobName);
   await alicePage.getByRole("button", { name: "Открыть" }).click();
   await alicePage.getByLabel("Сообщение").fill("привет");
@@ -38,20 +39,26 @@ test("two people exchange a live message", async ({ browser }) => {
 
   await alicePage.setViewportSize({ width: 390, height: 800 });
   await expect(alicePage.getByRole("link", { name: "Назад" })).toBeVisible();
-  await expect(alicePage.getByLabel("логин собеседника")).toBeHidden();
+  await expect(alicePage.getByRole("list", { name: "Диалоги" })).toBeHidden();
   await alicePage.setViewportSize({ width: 1100, height: 800 });
-  await expect(alicePage.getByLabel("логин собеседника")).toBeVisible();
+  await expect(alicePage.getByRole("list", { name: "Диалоги" })).toBeVisible();
   await expect(alicePage.getByLabel("Сообщение")).toBeVisible();
 
+  await bobPage.getByLabel("Действия сообщения", { exact: true }).click();
   await bobPage.getByRole("button", { name: "Пожаловаться" }).click();
   await bobPage.getByRole("button", { name: "спам" }).click();
+  await expect(bobPage.getByText("Жалоба отправлена")).toBeVisible();
+  await bobPage.getByLabel("Меню приложения", { exact: true }).click();
   await bobPage.getByRole("link", { name: "Жалобы" }).click();
   await expect(bobPage.getByText("привет")).toBeVisible();
   await expect(bobPage.getByText("спам")).toBeVisible();
 
   await bobPage.getByRole("link", { name: "К диалогам" }).click();
   await bobPage.getByRole("link", { name: new RegExp(aliceName) }).click();
-  await bobPage.getByRole("button", { name: "Заблокировать" }).click();
+  await bobPage.getByLabel("Действия диалога", { exact: true }).click();
+  await bobPage.getByRole("button", { name: "Заблокировать", exact: true }).click();
+  await bobPage.getByRole("dialog").getByRole("button", { name: "Заблокировать", exact: true }).click();
+  await expect(bobPage.getByText("Сообщения недоступны")).toBeVisible();
   await alicePage.reload();
   await expect(alicePage.getByText("Сообщения недоступны")).toBeVisible();
   await expect(alicePage.getByRole("list", { name: "Сообщения" }).getByText("привет")).toBeVisible();

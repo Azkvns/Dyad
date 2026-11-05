@@ -1,0 +1,18 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["apps/web/src"],
+  "locale": "ru-RU",
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Form", "Scrollbar", "Toast", "CRUD"],
+  "requiredCommands": ["typecheck", "unit", "e2e", "build"],
+  "commands": {
+    "typecheck": "pnpm --filter web exec tsc --noEmit",
+    "unit": "pnpm --filter web test",
+    "e2e": "pnpm --filter web e2e",
+    "build": "pnpm --filter web build"
+  },
+  "evidence": {
+    "crudFullFlow": "apps/web/e2e/conversation.spec.ts",
+    "failurePaths": "apps/web/e2e/redesign.spec.ts"
+  }
+}

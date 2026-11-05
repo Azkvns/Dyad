@@ -49,6 +49,7 @@ describe("Mailbox", () => {
       </MemoryRouter>,
     );
 
+    fireEvent.click((await screen.findAllByRole("button", { name: "Новый диалог" }))[0]!);
     const field = await screen.findByLabelText("логин собеседника");
     fireEvent.change(field, { target: { value: "bob" } });
     fireEvent.click(screen.getByRole("button", { name: "Открыть" }));

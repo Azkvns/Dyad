@@ -12,7 +12,6 @@ import {
   type ReportListItem,
   type ReportReason,
 } from "contracts";
-import type { z } from "zod";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -61,11 +60,11 @@ export function createApi(fetchImpl: typeof fetch, onUnauthorized: () => void): 
     return text;
   }
 
-  function read<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+  function read<T>(path: string, schema: { parse: (data: unknown) => T }): Promise<T> {
     return request(path, { method: "GET" }, true).then((text) => schema.parse(JSON.parse(text)));
   }
 
-  function send<T>(path: string, body: unknown, schema: z.ZodType<T>, redirectOnUnauthorized: boolean): Promise<T> {
+  function send<T>(path: string, body: unknown, schema: { parse: (data: unknown) => T }, redirectOnUnauthorized: boolean): Promise<T> {
     return request(
       path,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },

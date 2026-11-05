@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef } from "react";
-import { Route, Routes, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { createApi } from "./api";
 import { Mailbox } from "./mailbox";
 import { LoginRoute } from "./pages/login-page";
@@ -8,6 +8,11 @@ import { connectSocket } from "./socket";
 
 export function App() {
   const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    const title = location.pathname === "/login" ? "Вход" : location.pathname === "/register" ? "Регистрация" : location.pathname === "/blocks" ? "Блокировки" : location.pathname === "/reports" ? "Жалобы" : "Сообщения";
+    document.title = `${title} — Dyad`;
+  }, [location.pathname]);
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const onUnauthorized = useCallback(() => navigateRef.current("/login"), []);
